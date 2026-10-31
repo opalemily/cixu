@@ -54,9 +54,14 @@ function frequencyHTML(w){
  if(m)return `<div class="frequency-meta"><span>真题出现 <strong>${esc(m[2])}</strong> 次</span><span>涉及 ${esc(m[3])} 套</span><span>最近 ${esc(m[4])} 年</span></div>`;
  return w.stats.includes('未考查')?'<p class="frequency-meta">所统计的 46 套真题中未出现</p>':`<p class="frequency-meta">${esc(w.stats)}</p>`;
 }
-function meaningHTML(w,book=false){return w.redbookImage&&(book||w.group===5)?`<img class="source-meaning" src="${w.redbookImage}" alt="${esc(w.redbookWord||w.word)} 红宝书原图音标与释义"><p class="source-note">红宝书第 ${w.redbookPage} 页 · 保留原图音标与释义</p>`:esc(w.meaning)}
+function meaningHTML(w,book=false){
+ if(!w.redbookImage||!(book||w.group===5))return esc(w.meaning);
+ const alt=esc(w.redbookWord||w.word)+' 红宝书原图音标与释义',c=w.imageClip;
+ const image=c?`<div class="source-sprite-frame" style="max-width:${c.width}px"><div class="source-sprite" style="padding-top:${c.height/c.width*100}%"><img class="source-meaning" src="${w.redbookImage}" alt="${alt}" style="width:${c.sheetWidth/c.width*100}%;max-width:none;transform:translateY(-${c.y/c.sheetHeight*100}%)"></div></div>`:`<img class="source-meaning" src="${w.redbookImage}" alt="${alt}">`;
+ return image+`<p class="source-note">红宝书第 ${w.redbookPage} 页 · 保留原图音标与释义</p>`;
+}
 function settings(){document.querySelector('#daily-input').value=s.settings.daily;document.querySelector('#start-input').value=s.settings.start;document.querySelector('#target-input').value=s.settings.target;document.querySelector('#scope-input').value=s.settings.scope;const a=document.querySelector('#backup-download a');if(a){URL.revokeObjectURL(a.href);a.remove()}document.querySelector('#backup-text').value=backupText();document.querySelector('#backup-text-panel').open=false;document.querySelector('#backup-note').textContent='若浏览器没有下载响应，可以复制备份文本，粘贴到备忘录保存。';document.querySelector('#settings').showModal()}
-let printModel=null,printScrollY=0,pdfBusy=false,pdfUrl=null;
+let printModel=null,printScrollY=0,pdfBusy=false,pdfUrl=null,pdfAsset=null,pdfJob=0;const pdfUrls=[];
 function doPrint(test){
  const d=E.day(s,today());let ids=[...new Set([...d.new,...d.review])],planned=false;
  if(!ids.length){planned=true;ids=[...new Set([...E.due(s,W,today()).slice(0,100).map(w=>w.id),...E.scopeWords(W,s.settings.scope).filter(w=>!s.records[w.id]).slice(0,s.settings.daily).map(w=>w.id)])]}
@@ -65,22 +70,34 @@ function doPrint(test){
  document.querySelector('#print-area').innerHTML=`<h1>词序 · ${test?'遮义自测':'今日词表'}</h1><p>${today()} · 共 ${ids.length} 词　姓名：____________</p><table><thead><tr><th>序号</th><th>单词 / 音标</th><th>${test?'回忆释义':'中文释义'}</th><th>掌握</th></tr></thead><tbody>${ids.map((id,i)=>{const w=byId[id];return `<tr><td>${i+1}</td><td><b>${esc(w.word)}</b>${w.ipa?`<br>/${esc(w.ipa)}/`:''}</td><td>${test?'________________________':meaningHTML(w,s.session?.group===5)+(w.excerpt?'（原表截断）':'')}</td><td>□ 会<br>□ 待背</td></tr>`}).join('')}</tbody></table>`;
  document.querySelector('#print-dialog').close();printScrollY=window.scrollY;document.querySelector('#print-preview').hidden=false;document.body.classList.add('print-preview-open');
  document.querySelector('#print-status').textContent=planned?'这是按今日计划生成的预览，不会计入学习进度。可系统打印，或下载PDF后打开打印。':'词表已生成。若系统打印没有响应，可下载PDF后打开打印。';
- if(pdfUrl){URL.revokeObjectURL(pdfUrl);pdfUrl=null}document.querySelector('#pdf-download').replaceChildren();window.scrollTo(0,0);
+ pdfJob++;pdfBusy=false;pdfUrl=null;pdfAsset=null;const pb=document.querySelector('[data-act="print-pdf"]');pb.disabled=false;pb.textContent='下载PDF词表';document.querySelector('#pdf-download').replaceChildren();window.scrollTo(0,0);
 }
-function closePrint(){document.querySelector('#print-preview').hidden=true;document.body.classList.remove('print-preview-open');window.scrollTo(0,printScrollY)}
+function closePrint(){pdfJob++;pdfBusy=false;document.querySelector('#print-preview').hidden=true;document.body.classList.remove('print-preview-open');window.scrollTo(0,printScrollY)}
 function systemPrint(){
  document.querySelector('#print-status').textContent='已请求系统打印；如果没有弹出窗口，请点“下载PDF词表”，保存后用PDF阅读器打印。';
  try{if(typeof window.print!=='function')throw Error();window.print()}catch(error){document.querySelector('#print-status').textContent='当前浏览器未能打开系统打印。请下载PDF词表，保存后打开打印。'}
 }
 async function downloadPDF(){
- if(pdfBusy||!printModel)return;pdfBusy=true;const b=document.querySelector('[data-act="print-pdf"]'),model={...printModel,ids:[...printModel.ids]};b.disabled=true;
+ if(pdfBusy||!printModel)return;
+ if(pdfAsset){document.querySelector('#pdf-download [data-pdf-download]').click();document.querySelector('#print-status').textContent='已再次请求下载；若未保存，请打开PDF预览，或通过系统分享保存。';return}
+ pdfBusy=true;const job=++pdfJob,b=document.querySelector('[data-act="print-pdf"]'),model={...printModel,ids:[...printModel.ids]};b.disabled=true;
  const status=document.querySelector('#print-status');
  try{
-  const blob=await createWordListPDF(model,byId,(n,total)=>{status.textContent=`正在生成PDF ${n}/${total}…`});
-  if(pdfUrl)URL.revokeObjectURL(pdfUrl);pdfUrl=URL.createObjectURL(blob);const a=document.createElement('a');a.href=pdfUrl;a.download=`word-list-${model.date}${model.test?'-test':''}.pdf`;a.className='backup-download';a.textContent='点击保存PDF词表';
-  document.querySelector('#pdf-download').replaceChildren(a);a.click();status.textContent='PDF已生成。若未开始下载，点击下方“点击保存PDF词表”；保存后用PDF阅读器打开打印。';
- }catch(error){const reason=error?.name==='SecurityError'?'浏览器阻止了本地图片读取，请通过上线网址打开，或使用完整的单HTML本地版。':String(error?.message||'未能识别的浏览器错误').slice(0,180);status.textContent='PDF生成未完成：'+reason;toast('PDF生成失败，原学习进度未受影响。')}
- finally{pdfBusy=false;b.disabled=false}
+  const blob=await createWordListPDF(model,byId,(n,total)=>{if(job!==pdfJob)throw Error('cancelled');status.textContent=`正在生成PDF ${n}/${total}…`});if(job!==pdfJob)return;
+  pdfUrl=URL.createObjectURL(blob);pdfUrls.push(pdfUrl);if(pdfUrls.length>6)URL.revokeObjectURL(pdfUrls.shift());
+  const name=`word-list-${model.date}${model.test?'-test':''}.pdf`;pdfAsset={blob,url:pdfUrl,name};const a=document.createElement('a');a.href=pdfUrl;a.download=name;a.className='pdf-save-link';a.dataset.pdfDownload='';a.textContent='保存PDF文件';
+  const preview=document.createElement('a');preview.href=pdfUrl;preview.target='_blank';preview.rel='noopener';preview.className='pdf-save-link';preview.dataset.pdfPreview='';preview.textContent='打开PDF预览';
+  const holder=document.querySelector('#pdf-download');holder.replaceChildren(a,preview);
+  try{const file=new File([blob],name,{type:'application/pdf'});if(typeof navigator.share==='function'&&navigator.canShare?.({files:[file]})){const share=document.createElement('button');share.type='button';share.dataset.act='pdf-share';share.textContent='系统分享／保存';holder.appendChild(share)}}catch(error){}
+  const hint=document.createElement('p');hint.className='muted';hint.textContent='电脑可直接保存。手机／平板若未开始下载，可打开PDF预览，再用预览页的分享菜单保存到“文件”。';holder.appendChild(hint);
+  b.textContent='重新下载PDF';a.click();status.textContent='PDF已生成。请选择保存文件、打开预览，或使用设备支持的系统分享。';
+ }catch(error){if(job!==pdfJob)return;const reason=error?.name==='SecurityError'?'浏览器阻止了图片读取，请通过上线网址打开，或使用完整的单HTML本地版。':String(error?.message||'未能识别的浏览器错误').slice(0,180);status.textContent='PDF生成未完成：'+reason;toast('PDF生成失败，原学习进度未受影响。')}
+ finally{if(job===pdfJob){pdfBusy=false;b.disabled=false}}
+}
+async function sharePDF(){
+ if(!pdfAsset)return;const status=document.querySelector('#print-status');
+ try{const file=new File([pdfAsset.blob],pdfAsset.name,{type:'application/pdf'});if(!navigator.canShare?.({files:[file]})||typeof navigator.share!=='function')throw Error('unsupported');await navigator.share({files:[file],title:'词序今日词表'});status.textContent='系统分享已返回，请确认是否已保存文件；PDF仍可在下方预览或下载。'}
+ catch(error){status.textContent=error?.name==='AbortError'?'已取消分享，PDF仍保留，可继续预览或下载。':'当前浏览器未能打开系统分享。请点“打开PDF预览”，再使用预览页的保存或分享功能。'}
 }
 function backupText(){return JSON.stringify(s,null,2)}
 function showBackupText(){
@@ -137,6 +154,7 @@ document.addEventListener('click',e=>{
  case 'print-back':closePrint();break;
  case 'print-system':systemPrint();break;
  case 'print-pdf':downloadPDF();break;
+ case 'pdf-share':sharePDF();break;
  case 'export':exportProgress();break;
  case 'copy-backup':copyProgress();break;
  case 'select-backup':{const f=showBackupText();f.focus();f.select();f.setSelectionRange(0,f.value.length);toast('已选中全部备份文本，可长按复制。');break}

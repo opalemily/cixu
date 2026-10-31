@@ -25,7 +25,7 @@
  root.createWordListPDF=async function(model,words,onProgress){
   const images=[],CW=1240,CH=1754,M=66,BOTTOM=CH-70;
   const columns=[M,M+54,M+354,CW-M-93,CW-M];
-  let canvas,ctx,y,pageNo=0;
+  let canvas,ctx,y,pageNo=0;const imageCache=new Map();
   const font=(size=20,weight='normal')=>{ctx.font=`${weight} ${size}px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif`;ctx.fillStyle='#222'};
   function wrap(text,maxWidth,size=20){
    font(size);const lines=[];let line='';
@@ -44,21 +44,21 @@
    const binary=atob(url.slice(url.indexOf(',')+1)),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
    images.push({bytes,width:CW,height:CH});canvas.width=1;canvas.height=1;
   }
-  function getImage(src,word){return new Promise((resolve,reject)=>{
+  function getImage(src,word){if(imageCache.has(src))return imageCache.get(src);const promise=new Promise((resolve,reject)=>{
    const im=new Image(),timer=setTimeout(()=>{im.onload=im.onerror=null;reject(Error(`“${word}”的原图加载超时，请检查网络后重试`))},15000);
    im.onload=()=>{clearTimeout(timer);resolve(im)};im.onerror=()=>{clearTimeout(timer);reject(Error(`“${word}”的原图未加载，请检查上线文件是否完整`))};im.src=src;
-  })}
+  });if(imageCache.size>=3)imageCache.delete(imageCache.keys().next().value);imageCache.set(src,promise);return promise}
   start();
   for(let i=0;i<model.ids.length;i++){
    const w=words[model.ids[i]],book=!!w.redbookImage&&(model.book||w.group===5);
    const a=wrap(w.word,columns[2]-columns[1]-24,22),phon=w.ipa?wrap('/'+w.ipa+'/',columns[2]-columns[1]-24,18):[];
    const text=model.test?'____________________________':w.meaning+(w.excerpt?'（原表截断）':'');
    const lines=wrap(text,columns[3]-columns[2]-24,20);let im=null,imHeight=0;
-   if(!model.test&&book){im=await getImage(w.redbookImage,w.word);imHeight=im.naturalHeight*((columns[3]-columns[2]-24)/im.naturalWidth)}
+   if(!model.test&&book){im=await getImage(w.redbookImage,w.word);imHeight=(w.imageClip?w.imageClip.height/w.imageClip.width:im.naturalHeight/im.naturalWidth)*(columns[3]-columns[2]-24)}
    const height=Math.max(80,a.length*29+phon.length*26+24,im?imHeight+24:lines.length*29+24);
    if(y+height>BOTTOM){await finish();start()}
    font(19);ctx.fillText(String(i+1),columns[0]+10,y+14);font(22,'bold');a.forEach((t,j)=>ctx.fillText(t,columns[1]+10,y+13+j*29));font(18);phon.forEach((t,j)=>ctx.fillText(t,columns[1]+10,y+16+a.length*29+j*26));
-   if(im)ctx.drawImage(im,columns[2]+12,y+12,columns[3]-columns[2]-24,imHeight);else{font(20);lines.forEach((t,j)=>ctx.fillText(t,columns[2]+12,y+13+j*29))}
+   if(im){const c=w.imageClip;if(c)ctx.drawImage(im,c.x,c.y,c.width,c.height,columns[2]+12,y+12,columns[3]-columns[2]-24,imHeight);else ctx.drawImage(im,columns[2]+12,y+12,columns[3]-columns[2]-24,imHeight)}else{font(20);lines.forEach((t,j)=>ctx.fillText(t,columns[2]+12,y+13+j*29))}
    font(18);ctx.strokeStyle='#666';ctx.strokeRect(columns[3]+10,y+15,13,13);ctx.fillText('会',columns[3]+32,y+12);ctx.strokeRect(columns[3]+10,y+44,13,13);ctx.fillText('待背',columns[3]+32,y+41);
    for(const x of columns)line(x,y,x,y+height);y+=height;line(M,y,CW-M,y);
    onProgress?.(i+1,model.ids.length);if(i%12===0)await new Promise(resolve=>setTimeout(resolve,0));

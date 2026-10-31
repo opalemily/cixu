@@ -19,3 +19,12 @@
  @media(max-width:760px){#print-preview{padding:14px 12px 35px}.print-toolbar{padding:16px;gap:12px}.print-toolbar h2{font-size:16px}.print-toolbar button{font-size:12px}.print-toolbar p{font-size:12px;line-height:1.8}.print-content{padding:14px}.print-toolbar>div{width:100%}}
 }
 @media print{.print-toolbar{display:none!important}#print-preview{padding:0;margin:0;border:0}.print-content{overflow:visible;border:0;padding:0}}
+
+.source-sprite{position:relative;width:100%;overflow:hidden;margin:0 auto;background:white}
+.source-sprite>.source-meaning{position:absolute;left:0;top:0;height:auto;margin:0;transform-origin:top left}
+.pdf-save-link{display:inline-block;padding:10px 15px;border:1px solid var(--line);border-radius:13px;background:white;color:var(--purple);font-size:13px;text-decoration:underline;white-space:nowrap}
+.print-toolbar #pdf-download{width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.print-toolbar #pdf-download .muted{width:100%;font-size:12px;margin:0;line-height:1.8}
+@media print{.source-sprite{break-inside:avoid}}
+
+.source-sprite-frame{width:100%;margin:0 auto}.source-sprite-frame>.source-sprite{height:0}
